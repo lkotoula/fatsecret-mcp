@@ -254,7 +254,15 @@ async def app_lifespan():
 
 # ── MCP Server ───────────────────────────────────────────────────────────────
 
-mcp = FastMCP("fatsecret_mcp", lifespan=app_lifespan)
+port = int(os.environ.get("PORT", os.environ.get("MCP_PORT", "8000")))
+
+mcp = FastMCP(
+    "fatsecret_mcp",
+    lifespan=app_lifespan,
+    host="0.0.0.0",
+    port=port,
+    stateless_http=True,
+)
 
 
 # ── Helper functions ─────────────────────────────────────────────────────────
@@ -793,10 +801,29 @@ async def fatsecret_auth_status(ctx=None) -> str:
 if __name__ == "__main__":
     import sys
 
-    transport = os.environ.get("MCP_TRANSPORT", "streamable_http")
-    port = int(os.environ.get("MCP_PORT", "8000"))
+    transport = os.environ.get("MCP_TRANSPORT", "streamable-http")
 
     if transport == "stdio":
         mcp.run(transport="stdio")
     else:
-        mcp.run(transport="streamable_http", host="0.0.0.0", port=port)
+        # Monkey-patch the Starlette app to add a /health route
+        _original_app = mcp.streamable_http_app
+
+        def patched_app():
+            from starlette.applications import Starlette
+            from starlette.responses import JSONResponse
+            from starlette.routing import Route
+
+            app = _original_app()
+
+            async def health(request):
+                return JSONResponse({"status": "ok"})
+
+            # Prepend health route
+            app.routes.insert(0, Route("/health", health))
+            return app
+
+        mcp.streamable_http_app = patched_app
+
+        print(f"Starting FatSecret MCP server on port {port}", file=sys.stderr)
+        mcp.run(transport="streamable-http")

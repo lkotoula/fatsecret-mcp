@@ -7,9 +7,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY server.py .
 
-ENV MCP_TRANSPORT=streamable_http
-ENV MCP_PORT=8000
+ENV MCP_TRANSPORT=streamable-http
 
-EXPOSE 8000
+# Railway sets PORT automatically; fallback to 8000 locally
+ENV MCP_PORT=8000
 
 CMD ["python", "server.py"]
