@@ -11,7 +11,6 @@ import hashlib
 import hmac
 import time
 import urllib.parse
-from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 
 import httpx
@@ -227,29 +226,16 @@ class FatSecretClient:
         }
 
 
-# ── Lifespan ─────────────────────────────────────────────────────────────────
+# ── Global Client ────────────────────────────────────────────────────────────
 
-@asynccontextmanager
-async def app_lifespan():
-    """Initialize FatSecret client on server startup."""
-    consumer_key = os.environ.get("FATSECRET_CONSUMER_KEY", "")
-    consumer_secret = os.environ.get("FATSECRET_CONSUMER_SECRET", "")
-    access_token = os.environ.get("FATSECRET_ACCESS_TOKEN", "")
-    token_secret = os.environ.get("FATSECRET_TOKEN_SECRET", "")
+_consumer_key = os.environ.get("FATSECRET_CONSUMER_KEY", "")
+_consumer_secret = os.environ.get("FATSECRET_CONSUMER_SECRET", "")
+_access_token = os.environ.get("FATSECRET_ACCESS_TOKEN", "")
+_token_secret = os.environ.get("FATSECRET_TOKEN_SECRET", "")
 
-    if not consumer_key or not consumer_secret:
-        raise ValueError(
-            "FATSECRET_CONSUMER_KEY and FATSECRET_CONSUMER_SECRET "
-            "environment variables are required."
-        )
-
-    client = FatSecretClient(consumer_key, consumer_secret,
-                             access_token, token_secret)
-
-    # Store pending auth state for OAuth flow
-    yield {"client": client, "pending_auth": {}}
-
-    await client.close()
+_client = FatSecretClient(_consumer_key, _consumer_secret,
+                          _access_token, _token_secret)
+_pending_auth: dict = {}
 
 
 # ── MCP Server ───────────────────────────────────────────────────────────────
@@ -258,7 +244,6 @@ port = int(os.environ.get("PORT", os.environ.get("MCP_PORT", "8000")))
 
 mcp = FastMCP(
     "fatsecret_mcp",
-    lifespan=app_lifespan,
     host="0.0.0.0",
     port=port,
     stateless_http=True,
@@ -267,12 +252,12 @@ mcp = FastMCP(
 
 # ── Helper functions ─────────────────────────────────────────────────────────
 
-def _get_client(ctx) -> FatSecretClient:
-    return ctx.request_context.lifespan_state["client"]
+def _get_client(ctx=None) -> FatSecretClient:
+    return _client
 
 
-def _get_pending_auth(ctx) -> dict:
-    return ctx.request_context.lifespan_state["pending_auth"]
+def _get_pending_auth(ctx=None) -> dict:
+    return _pending_auth
 
 
 def _handle_api_error(e: Exception) -> str:
