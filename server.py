@@ -806,21 +806,49 @@ if __name__ == "__main__":
     if transport == "stdio":
         mcp.run(transport="stdio")
     else:
-        # Monkey-patch the Starlette app to add a /health route
+        # Monkey-patch the Starlette app to add health and discovery routes
         _original_app = mcp.streamable_http_app
 
         def patched_app():
-            from starlette.applications import Starlette
-            from starlette.responses import JSONResponse
+            from starlette.responses import JSONResponse, Response
             from starlette.routing import Route
+            from starlette.middleware.cors import CORSMiddleware
 
             app = _original_app()
 
             async def health(request):
                 return JSONResponse({"status": "ok"})
 
-            # Prepend health route
-            app.routes.insert(0, Route("/health", health))
+            async def well_known_oauth_protected_resource(request):
+                # Return 404 to signal this is an authless server
+                return Response(status_code=404)
+
+            async def well_known_oauth_authorization_server(request):
+                # Return 404 to signal this is an authless server
+                return Response(status_code=404)
+
+            # Prepend routes
+            app.routes.insert(0, Route("/health", health, methods=["GET"]))
+            app.routes.insert(0, Route(
+                "/.well-known/oauth-protected-resource",
+                well_known_oauth_protected_resource,
+                methods=["GET"]
+            ))
+            app.routes.insert(0, Route(
+                "/.well-known/oauth-authorization-server",
+                well_known_oauth_authorization_server,
+                methods=["GET"]
+            ))
+
+            # Add CORS middleware
+            app.add_middleware(
+                CORSMiddleware,
+                allow_origins=["https://claude.ai", "https://claude.com"],
+                allow_methods=["GET", "POST", "DELETE", "OPTIONS", "HEAD"],
+                allow_headers=["*"],
+                expose_headers=["mcp-session-id"],
+            )
+
             return app
 
         mcp.streamable_http_app = patched_app
